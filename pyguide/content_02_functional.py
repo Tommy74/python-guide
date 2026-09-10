@@ -98,12 +98,96 @@ print(make_optimizer(**config))     # dict -> keyword args
 pair = (0.9, 0.999)
 print("betas unpacked:", *pair)     # tuple -> positional args
 '''},
+            {"t": "h", "text": "Returning multiple values"},
+            {"t": "p", "text":
+                "A function returns one object, but that object can be a tuple, "
+                "which Python packs and unpacks automatically. This is how a "
+                "training step hands back both loss and accuracy, or how a data "
+                "split returns train and test sets at once."},
+            {"t": "code", "run": True, "caption": "Tuple returns and unpacking",
+             "code": '''\
+def evaluate(preds, labels):
+    correct = sum(p == y for p, y in zip(preds, labels))
+    acc = correct / len(labels)
+    loss = 1.0 - acc                # toy loss
+    return loss, acc                # packed into a tuple
+
+loss, acc = evaluate([1, 0, 1, 1], [1, 0, 0, 1])
+print(f"loss={loss:.2f}, acc={acc:.2f}")
+'''},
+            {"t": "h", "text": "First-class functions"},
+            {"t": "p", "text":
+                "In Python functions are ordinary objects: you can store them in "
+                "variables, put them in a dict, and pass them as arguments. This "
+                "is what makes a registry of activations or a table of metrics "
+                "possible, and it underpins `map`, `sorted(key=)` and "
+                "decorators."},
+            {"t": "code", "run": True, "caption": "Functions as values in a registry",
+             "code": '''\
+def relu(x):
+    return max(0.0, x)
+
+def leaky(x):
+    return x if x > 0 else 0.01 * x
+
+ACTIVATIONS = {"relu": relu, "leaky": leaky}   # a dispatch table
+
+def apply(name, x):
+    fn = ACTIVATIONS[name]          # look up a function by name
+    return fn(x)
+
+print("relu(-3) =", apply("relu", -3.0))
+print("leaky(-3):", apply("leaky", -3.0))
+'''},
+            {"t": "h", "text": "Closures: functions that remember state"},
+            {"t": "p", "text":
+                "A function defined inside another function *captures* the "
+                "enclosing variables, forming a **closure**. The inner function "
+                "keeps a live reference to that state after the outer function "
+                "returns. A learning-rate scheduler factory is the classic "
+                "example: it captures the base rate and decay, and each call "
+                "advances a private step counter via `nonlocal`."},
+            {"t": "code", "run": True, "caption": "A learning-rate scheduler factory",
+             "code": '''\
+def make_scheduler(base_lr, decay=0.5, every=2):
+    step = 0                         # captured, private state
+    def next_lr():
+        nonlocal step
+        lr = base_lr * (decay ** (step // every))
+        step += 1
+        return lr
+    return next_lr                   # a closure over base_lr/step
+
+sched = make_scheduler(1.0, decay=0.5, every=2)
+print([round(sched(), 3) for _ in range(6)])
+'''},
+            {"t": "h", "text": "Positional-only parameters with /"},
+            {"t": "p", "text":
+                "Parameters before a `/` in the signature can only be passed by "
+                "position, never by name. This lets you rename them freely "
+                "later, and mirrors many C-implemented builtins. It pairs with "
+                "the keyword-only `*` to give precise control over how a "
+                "function is called."},
+            {"t": "code", "run": True, "caption": "Locking a parameter to position",
+             "code": '''\
+def scale(x, /, factor=2.0):
+    return x * factor               # x is positional-only
+
+print("by position:", scale(10))
+print("keyword factor:", scale(10, factor=3.0))
+try:
+    scale(x=10)                     # naming x -> error
+except TypeError as e:
+    print("TypeError:", e)
+'''},
             {"t": "note", "text":
                 "Why it matters for AI: config-driven training relies on "
                 "`**config` unpacking, and the mutable-default trap is a real "
                 "source of data-leak bugs (e.g. a metric list that never "
                 "resets between runs). Prefer `None` sentinels for any "
-                "list/dict/set default."},
+                "list/dict/set default. Closures capture scheduler and "
+                "counter state cleanly, and first-class functions let you "
+                "build registries of layers, losses and metrics keyed by name."},
         ],
     },
     # ------------------------------------------------------------------
@@ -166,12 +250,78 @@ print("argmax:", best)
 top2 = sorted(candidates, key=lambda c: c[1], reverse=True)[:2]
 print("top-2 :", top2)
 '''},
+            {"t": "h", "text": "operator: faster, clearer sort keys"},
+            {"t": "p", "text":
+                "The `operator` module provides ready-made key functions: "
+                "`itemgetter(i)` pulls an element by index or key, "
+                "`attrgetter('x')` pulls an attribute, and `methodcaller('m')` "
+                "calls a method. They read better than a `lambda` and, being "
+                "written in C, run faster on large datasets, exactly the sort "
+                "keys you want when ordering millions of samples."},
+            {"t": "code", "run": True, "caption": "itemgetter vs lambda",
+             "code": '''\
+from operator import itemgetter
+
+candidates = [("cat", 0.12), ("dog", 0.71), ("fox", 0.55)]
+by_score = sorted(candidates, key=itemgetter(1), reverse=True)
+print("by score:", by_score)
+
+# clearer and faster than: key=lambda c: c[1]
+best = max(candidates, key=itemgetter(1))
+print("argmax  :", best)
+'''},
+            {"t": "h", "text": "Multi-key sort with itemgetter"},
+            {"t": "p", "text":
+                "Pass several indices to `itemgetter` to sort by a tuple of "
+                "keys: `itemgetter(1, 0)` sorts by field 1, breaking ties with "
+                "field 0. Python's sort is **stable**, meaning equal keys keep "
+                "their original order, so you can also get a secondary sort by "
+                "sorting twice, least-significant key first."},
+            {"t": "code", "run": True, "caption": "Sort by score, then name",
+             "code": '''\
+from operator import itemgetter
+
+rows = [("dog", 2), ("cat", 1), ("ant", 2), ("bee", 1)]
+
+# single pass: primary count, secondary name (both ascending)
+combined = sorted(rows, key=itemgetter(1, 0))
+print("count then name:", combined)
+
+# two-pass via stable sort: sort by name, then by count
+tmp = sorted(rows, key=itemgetter(0))          # secondary key first
+stable = sorted(tmp, key=itemgetter(1))        # primary key last
+print("stable two-pass:", stable)
+'''},
+            {"t": "h", "text": "attrgetter and methodcaller"},
+            {"t": "p", "text":
+                "`attrgetter` sorts objects by an attribute, common when your "
+                "samples are dataclasses. `methodcaller('m', *args)` builds a "
+                "key that calls a method on each element, for example sorting "
+                "strings case-insensitively via `str.lower`."},
+            {"t": "code", "run": True, "caption": "Sort objects and by method",
+             "code": '''\
+from operator import attrgetter, methodcaller
+from dataclasses import dataclass
+
+@dataclass
+class Sample:
+    text: str
+    length: int
+
+data = [Sample("BB", 2), Sample("a", 1), Sample("CCC", 3)]
+print("by length:", [s.text for s in sorted(data, key=attrgetter("length"))])
+
+words = ["banana", "Apple", "cherry"]
+print("caseless :", sorted(words, key=methodcaller("lower")))
+'''},
             {"t": "note", "text":
                 "Why it matters for AI: `sorted(..., key=...)` and "
                 "`max(..., key=...)` implement argmax, ranking, top-k selection "
                 "and length-bucketing without any library. Reach for a "
                 "comprehension over `map`/`filter` unless you already have a "
-                "named function to pass."},
+                "named function to pass, and prefer `operator.itemgetter`/"
+                "`attrgetter` over `lambda` for sort keys, they are clearer "
+                "and faster on large datasets."},
         ],
     },
     # ------------------------------------------------------------------
@@ -235,6 +385,129 @@ shape = (32, 3, 224, 224)               # (batch, channels, H, W)
 num_elements = reduce(lambda a, b: a * b, shape)
 print("elements per batch tensor:", num_elements)
 '''},
+            {"t": "h", "text": "reduce with an initializer"},
+            {"t": "p", "text":
+                "A third argument to `reduce` is the starting accumulator. It "
+                "fixes the result type and, crucially, makes `reduce` safe on "
+                "an empty sequence (without it, an empty input raises). Here we "
+                "compose a list of preprocessing steps into one pipeline "
+                "function, starting from the identity."},
+            {"t": "code", "run": True, "caption": "Fold transforms into a pipeline",
+             "code": '''\
+from functools import reduce
+
+steps = [lambda s: s.strip(),
+         lambda s: s.lower(),
+         lambda s: s.replace(" ", "_")]
+
+def compose(f, g):
+    return lambda s: g(f(s))         # apply f, then g
+
+pipeline = reduce(compose, steps, lambda s: s)   # start = identity
+print(repr(pipeline("  Hello World  ")))
+
+# initializer also guards the empty case
+print("empty sum:", reduce(lambda a, b: a + b, [], 0))
+'''},
+            {"t": "h", "text": "cache vs lru_cache and eviction"},
+            {"t": "p", "text":
+                "`@cache` is an unbounded memo (never evicts, keeps everything). "
+                "`@lru_cache(maxsize=N)` keeps only the N most-recently-used "
+                "entries and evicts the least-recently-used when full, trading "
+                "some recomputation for bounded memory. Watch the `misses` and "
+                "`currsize` fields of `cache_info()` to see eviction happen."},
+            {"t": "code", "run": True, "caption": "Bounded LRU eviction in action",
+             "code": '''\
+from functools import lru_cache, cache
+
+@lru_cache(maxsize=2)               # room for 2 entries only
+def embed(token):
+    return len(token)               # pretend: expensive lookup
+
+for tok in ["a", "bb", "a", "ccc", "bb"]:
+    embed(tok)
+print("lru  :", embed.cache_info())  # evictions once 3rd key seen
+
+@cache                              # unbounded, never evicts
+def square(n):
+    return n * n
+
+square(2); square(3); square(2)
+print("cache:", square.cache_info())
+'''},
+            {"t": "h", "text": "partial on methods"},
+            {"t": "p", "text":
+                "`partial` also freezes the first argument of a bound method, "
+                "letting you turn a general method into a specialised callable, "
+                "for example a metric object whose threshold is fixed once and "
+                "then called on many prediction batches."},
+            {"t": "code", "run": True, "caption": "Specialising a bound method",
+             "code": '''\
+from functools import partial
+
+class Metric:
+    def score(self, preds, threshold):
+        hits = sum(p >= threshold for p in preds)
+        return hits / len(preds)
+
+m = Metric()
+at_half = partial(m.score, threshold=0.5)   # freeze the threshold
+print("frac >= 0.5:", at_half([0.2, 0.6, 0.9, 0.4]))
+print("frac >= 0.5:", at_half([0.7, 0.8]))
+'''},
+            {"t": "h", "text": "singledispatch: type-based dispatch"},
+            {"t": "p", "text":
+                "`@singledispatch` turns a function into a generic that picks an "
+                "implementation based on the type of its **first** argument. It "
+                "is a clean alternative to a chain of `isinstance` checks, ideal "
+                "for a preprocessing function that must accept strings, numbers "
+                "or lists and normalise each differently."},
+            {"t": "code", "run": True, "caption": "One function, many input types",
+             "code": '''\
+from functools import singledispatch
+
+@singledispatch
+def to_tokens(x):
+    raise TypeError(f"unsupported: {type(x).__name__}")
+
+@to_tokens.register
+def _(x: str):
+    return x.split()
+
+@to_tokens.register
+def _(x: int):
+    return [str(x)]
+
+@to_tokens.register(list)
+def _(x):
+    return [t for item in x for t in to_tokens(item)]
+
+print(to_tokens("hello world"))
+print(to_tokens(42))
+print(to_tokens(["a b", 7]))
+'''},
+            {"t": "h", "text": "cached_property: compute once per instance"},
+            {"t": "p", "text":
+                "`@cached_property` turns a method into an attribute that is "
+                "computed on first access and then stored on the instance, so "
+                "later reads are free. Handy for a derived value like a "
+                "vocabulary size that is expensive to build but never changes."},
+            {"t": "code", "run": True, "caption": "Lazy, memoized attribute",
+             "code": '''\
+from functools import cached_property
+
+class Corpus:
+    def __init__(self, docs):
+        self.docs = docs
+    @cached_property
+    def vocab(self):
+        print("(building vocab...)")     # runs only once
+        return sorted({w for d in self.docs for w in d.split()})
+
+c = Corpus(["a b", "b c"])
+print(c.vocab)                            # builds
+print(c.vocab)                            # cached, no rebuild
+'''},
             {"t": "h", "text": "wraps: honest decorators"},
             {"t": "p", "text":
                 "When you write a decorator (see the Decorators chapter), the "
@@ -263,7 +536,9 @@ print("doc :", predict.__doc__)
                 "Why it matters for AI: `partial` preconfigures optimizers and "
                 "transforms in data pipelines, `lru_cache` avoids recomputing "
                 "tokenization or feature lookups, and `wraps` keeps your "
-                "training-loop decorators debuggable."},
+                "training-loop decorators debuggable. `singledispatch` gives "
+                "clean type-based preprocessing, and `cached_property` memoizes "
+                "expensive derived values like vocabularies per instance."},
         ],
     },
     # ------------------------------------------------------------------
@@ -342,12 +617,134 @@ samples = range(10)                      # pretend: 10 samples
 for step, mb in enumerate(batched(samples, 4)):
     print(f"step {step}: batch={mb} (size {len(mb)})")
 '''},
+            {"t": "h", "text": "accumulate: running totals"},
+            {"t": "p", "text":
+                "`accumulate` yields a running reduction, a cumulative sum by "
+                "default (like `cumsum`), or any binary function you pass. Use "
+                "it to turn per-step increments into a schedule, or per-batch "
+                "counts into a cumulative sample position."},
+            {"t": "code", "run": True, "caption": "Cumulative sum of a schedule",
+             "code": '''\
+from itertools import accumulate
+import operator
+
+warmup = [0.1, 0.2, 0.3, 0.4]
+print("cumsum   :", list(accumulate(warmup)))
+print("running max:", list(accumulate([3, 1, 4, 1, 5], max)))
+print("cumprod  :", list(accumulate([1, 2, 3, 4], operator.mul)))
+'''},
+            {"t": "h", "text": "groupby: group consecutive items"},
+            {"t": "p", "text":
+                "`groupby` groups **adjacent** items sharing a key, so the input "
+                "must be sorted by that key first. It is the standard way to "
+                "bucket samples by label or split a stream into runs."},
+            {"t": "code", "run": True, "caption": "Group samples by label",
+             "code": '''\
+from itertools import groupby
+from operator import itemgetter
+
+samples = [("cat", 0), ("dog", 1), ("cat", 2), ("dog", 3)]
+samples.sort(key=itemgetter(0))          # sort before grouping!
+for label, group in groupby(samples, key=itemgetter(0)):
+    ids = [s[1] for s in group]
+    print(f"{label}: {ids}")
+'''},
+            {"t": "h", "text": "zip_longest: pad ragged sequences"},
+            {"t": "p", "text":
+                "Plain `zip` stops at the shortest input; `zip_longest` runs to "
+                "the longest and fills gaps with a `fillvalue`. This is exactly "
+                "how you pad variable-length sequences into a rectangular batch."},
+            {"t": "code", "run": True, "caption": "Pad sequences to equal length",
+             "code": '''\
+from itertools import zip_longest
+
+seqs = [[1, 2, 3], [4], [5, 6]]
+padded = list(zip_longest(*seqs, fillvalue=0))
+# transpose back to per-sequence rows
+rows = [list(col) for col in zip(*padded)]
+print("padded batch:", rows)
+'''},
+            {"t": "h", "text": "starmap: apply over pre-zipped args"},
+            {"t": "p", "text":
+                "`starmap` is like `map` but unpacks each item as the function's "
+                "arguments, i.e. `f(*args)`. Perfect when your data already "
+                "comes as tuples of arguments, such as (prediction, label) pairs."},
+            {"t": "code", "run": True, "caption": "Map a 2-arg function over pairs",
+             "code": '''\
+from itertools import starmap
+
+pairs = [(0.9, 1), (0.2, 0), (0.6, 1)]
+def loss(p, y):
+    return round((p - y) ** 2, 3)
+print("per-sample loss:", list(starmap(loss, pairs)))
+'''},
+            {"t": "h", "text": "pairwise: sliding windows of two"},
+            {"t": "p", "text":
+                "`pairwise` (Python 3.10+) yields overlapping consecutive pairs, "
+                "the simplest sliding window. Use it to compute step-to-step "
+                "deltas of a loss curve or gaps between checkpoints."},
+            {"t": "code", "run": True, "caption": "Deltas between consecutive losses",
+             "code": '''\
+from itertools import pairwise
+
+losses = [2.0, 1.6, 1.5, 1.1]
+deltas = [round(b - a, 2) for a, b in pairwise(losses)]
+print("step-to-step change:", deltas)
+'''},
+            {"t": "h", "text": "cycle + islice: repeat a finite stream"},
+            {"t": "p", "text":
+                "`cycle` repeats an iterable forever; bound it with `islice` to "
+                "draw a fixed number of items. Cycling class labels is a quick "
+                "way to build a round-robin assignment or a repeating schedule."},
+            {"t": "code", "run": True, "caption": "Round-robin over a small set",
+             "code": '''\
+from itertools import cycle, islice
+
+folds = cycle(["train", "val"])          # infinite alternation
+assignment = list(islice(folds, 5))
+print("fold assignment:", assignment)
+'''},
+            {"t": "h", "text": "takewhile and dropwhile"},
+            {"t": "p", "text":
+                "`takewhile` yields items until the predicate first fails, then "
+                "stops; `dropwhile` skips items until it first fails, then "
+                "yields the rest. Handy for trimming a warmup prefix or reading "
+                "an early-stopping run."},
+            {"t": "code", "run": True, "caption": "Split a stream at a threshold",
+             "code": '''\
+from itertools import takewhile, dropwhile
+
+acc = [0.1, 0.3, 0.5, 0.49, 0.6]
+rising = list(takewhile(lambda a: a < 0.5, acc))
+rest = list(dropwhile(lambda a: a < 0.5, acc))
+print("before 0.5:", rising)
+print("from 0.5  :", rest)
+'''},
+            {"t": "h", "text": "tee: fork an iterator"},
+            {"t": "p", "text":
+                "`tee` splits one iterator into several independent ones, so you "
+                "can traverse a stream twice, for example to compute a running "
+                "mean and a max over the same data. Do not keep using the "
+                "original iterator after teeing it."},
+            {"t": "code", "run": True, "caption": "Two passes over one stream",
+             "code": '''\
+from itertools import tee
+
+data = iter([3, 1, 4, 1, 5])
+a, b = tee(data, 2)                       # two independent copies
+total = sum(a)
+peak = max(b)
+print(f"mean={total / 5:.1f}, max={peak}")
+'''},
             {"t": "note", "text":
                 "Why it matters for AI: itertools is the pure-Python toolkit "
                 "for data pipelines. `chain` merges shards, `islice` bounds "
                 "infinite generators, `product` enumerates hyperparameter "
                 "grids, and `batched` builds mini-batches, all lazily and "
-                "without loading everything into memory."},
+                "without loading everything into memory. `accumulate` builds "
+                "schedules, `groupby` buckets samples by label, `zip_longest` "
+                "pads ragged batches, and `pairwise` gives sliding windows over "
+                "a loss curve."},
         ],
     },
 ]

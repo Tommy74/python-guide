@@ -96,6 +96,35 @@ print("found:", [p.name for p in ckpts])
 latest = max(ckpts, key=lambda p: int(p.stem.split("_")[1]))
 print("latest:", latest.name)
 '''},
+            {"t": "h", "text": "Whole-file helpers and directory walking"},
+            {"t": "p", "text":
+                "For small files, `Path.write_text`/`read_text` (and the binary "
+                "`write_bytes`/`read_bytes`) do the open-write-close dance in a "
+                "single call - no `with` block needed. To discover files, "
+                "`Path.iterdir` yields the entries of one directory while "
+                "`Path.rglob` walks a whole tree recursively, which is how you "
+                "gather every shard scattered under a nested dataset root."},
+            {"t": "code", "run": True, "caption": "One-shot reads and a recursive walk",
+             "code": '''\
+from pathlib import Path
+import tempfile
+
+root = Path(tempfile.mkdtemp())
+(root / "train").mkdir()
+(root / "val").mkdir()
+(root / "config.json").write_text('{"lr": 0.001}')
+(root / "train" / "shard_0.jsonl").write_text('{"x": 1}\\n')
+(root / "val" / "shard_0.jsonl").write_text('{"x": 2}\\n')
+
+print("config:", (root / "config.json").read_text())
+print("top level:")
+for entry in sorted(root.iterdir()):
+    kind = "dir " if entry.is_dir() else "file"
+    print(" ", kind, entry.name)
+
+shards = sorted(p.relative_to(root) for p in root.rglob("*.jsonl"))
+print("all shards:", [str(s) for s in shards])
+'''},
             {"t": "note", "text":
                 "Why it matters for AI: dataset loaders stream files line by "
                 "line to stay within memory, and resuming training means "
@@ -153,6 +182,36 @@ for line in buf:
     obj = json.loads(line)
     print(obj["prompt"], "->", obj["completion"])
 '''},
+            {"t": "h", "text": "Formatting options and custom encoders"},
+            {"t": "p", "text":
+                "`json.dumps` takes formatting flags worth knowing: `indent=` "
+                "pretty-prints, `sort_keys=True` makes output deterministic so "
+                "two configs diff cleanly, and `ensure_ascii=False` keeps "
+                "accented or non-Latin characters readable instead of escaping "
+                "them to `\\\\uXXXX`. For a type JSON does not understand - a "
+                "`set`, a `datetime`, a dataclass - pass a `default=` function "
+                "that converts it into something serialisable."},
+            {"t": "code", "run": True, "caption": "Sorted keys, unicode and a custom default",
+             "code": '''\
+import json
+from dataclasses import dataclass, asdict
+
+@dataclass
+class RunConfig:
+    name: str
+    tags: set
+
+def encode(obj):
+    if isinstance(obj, set):
+        return sorted(obj)          # sets are not JSON-native
+    raise TypeError(f"cannot serialise {type(obj).__name__}")
+
+cfg = RunConfig(name="expérience", tags={"nlp", "gpu"})
+
+text = json.dumps(asdict(cfg), indent=2, sort_keys=True,
+                  ensure_ascii=False, default=encode)
+print(text)
+'''},
             {"t": "h", "text": "CSV with DictReader / DictWriter"},
             {"t": "p", "text":
                 "The `csv` module handles quoting and escaping for you. "
@@ -179,6 +238,33 @@ pos = sum(1 for row in reader if row["label"] == "1")
 print("CSV written:")
 print(buf.getvalue(), end="")
 print("positive examples:", pos)
+'''},
+            {"t": "h", "text": "Fields that contain commas and quotes"},
+            {"t": "p", "text":
+                "Real text data is full of commas, quotes and newlines. The "
+                "`csv` module quotes such fields on write and unquotes them on "
+                "read, so a value with a comma is never split across two "
+                "columns. When reading or writing a CSV *file* (not an "
+                "in-memory buffer), always open it with `newline=\"\"` so the "
+                "module - not the OS - controls line endings."},
+            {"t": "code", "run": True, "caption": "Round-trip a field with commas and quotes",
+             "code": '''\
+import csv, io
+
+rows = [{"text": 'He said, "hi", loudly', "label": "greeting"}]
+
+buf = io.StringIO()
+writer = csv.DictWriter(buf, fieldnames=["text", "label"])
+writer.writeheader()
+writer.writerows(rows)
+
+print("raw csv line:")
+print(buf.getvalue(), end="")
+
+buf.seek(0)
+row = next(csv.DictReader(buf))
+print("parsed text :", row["text"])
+print("still 2 cols:", len(row))
 '''},
             {"t": "note", "text":
                 "Why it matters for AI: fine-tuning datasets are almost always "
@@ -245,6 +331,46 @@ print("shapes:", {k: v.shape for k, v in loaded.items()})
 print("equal :", np.array_equal(weights["w"], loaded["w"]))
 os.remove(path)
 '''},
+            {"t": "h", "text": "Protocol versions and size"},
+            {"t": "p", "text":
+                "Pickle has several wire formats. Higher protocols are faster "
+                "and more compact; `pickle.DEFAULT_PROTOCOL` is what `dumps` "
+                "uses unless you override it, and `pickle.HIGHEST_PROTOCOL` is "
+                "the newest your interpreter supports. Pin a protocol number "
+                "when a file must also be readable by an older Python."},
+            {"t": "code", "run": True, "caption": "Compare pickle protocols",
+             "code": '''\
+import pickle
+
+obj = {"weights": list(range(1000)), "step": 42}
+
+print("default protocol:", pickle.DEFAULT_PROTOCOL)
+print("highest protocol:", pickle.HIGHEST_PROTOCOL)
+for proto in (0, pickle.DEFAULT_PROTOCOL, pickle.HIGHEST_PROTOCOL):
+    size = len(pickle.dumps(obj, protocol=proto))
+    print(f"protocol {proto}: {size} bytes")
+'''},
+            {"t": "h", "text": "Why untrusted pickles are dangerous"},
+            {"t": "p", "text":
+                "Unpickling is not passive data loading: an object can define "
+                "`__reduce__` to run *any* callable the moment it is loaded. "
+                "The demo below is deliberately harmless - it only calls "
+                "`print` - but the very same mechanism could delete files or "
+                "spawn a shell. This is why you must never `pickle.load` bytes "
+                "from a source you do not trust."},
+            {"t": "code", "run": True, "caption": "A pickle that runs code on load",
+             "code": '''\
+import pickle
+
+class Exploit:
+    def __reduce__(self):
+        # The returned callable + args run during unpickling.
+        return (print, ("[!] arbitrary code ran on load",))
+
+blob = pickle.dumps(Exploit())
+print("loading the blob triggers the payload:")
+pickle.loads(blob)   # prints the message - could be anything
+'''},
             {"t": "h", "text": "The framework equivalent"},
             {"t": "p", "text":
                 "Deep-learning frameworks wrap pickle in their own save/load "
@@ -262,6 +388,28 @@ torch.save(model.state_dict(), "model.pt")
 model = MyModel()
 model.load_state_dict(torch.load("model.pt"))
 model.eval()
+'''},
+            {"t": "h", "text": "Safer alternatives for weights"},
+            {"t": "p", "text":
+                "For pure numeric weights, prefer formats that store data "
+                "*without* embedded code. `numpy.save`/`.npz` bundles plain "
+                "arrays, `joblib` compresses large arrays efficiently (though "
+                "it is still pickle-based), and `safetensors` has become the "
+                "default for shared model weights precisely because loading it "
+                "can never execute code. The snippet is illustrative only."},
+            {"t": "code", "run": False, "caption": "Illustrative: safetensors and joblib",
+             "code": '''\
+import numpy as np
+from safetensors.numpy import save_file, load_file
+import joblib
+
+# safetensors: weights only, no arbitrary code on load.
+save_file({"w": np.zeros((2, 3))}, "model.safetensors")
+weights = load_file("model.safetensors")
+
+# joblib: efficient for big arrays, but still pickle-based.
+joblib.dump(weights, "weights.joblib")
+weights = joblib.load("weights.joblib")
 '''},
             {"t": "note", "text":
                 "Why it matters for AI - and a security warning: **never "

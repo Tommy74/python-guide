@@ -58,6 +58,28 @@ b = a.reshape(3, 4)
 print("reshaped:\\n", b)
 print("flatten with -1:", b.reshape(-1).shape)
 print("add batch axis:", a.reshape(1, -1).shape)'''},
+            {"t": "h", "text": "Views vs copies: a slice shares memory"},
+            {"t": "p", "text":
+                "This trips up nearly everyone once. A basic slice returns a "
+                "**view** onto the *same* memory, not a copy, so mutating the "
+                "view mutates the original. `reshape` and `ravel` also return "
+                "views when they can. Call `.copy()` when you need an independent "
+                "array, and `np.newaxis` to insert a length-1 axis (the classic "
+                "way to add a batch dimension)."},
+            {"t": "code", "run": True, "caption": "A View Mutates the Original",
+             "code": '''import numpy as np
+
+a = np.arange(6)
+view = a[:3]          # a slice is a VIEW, not a copy
+view[0] = 99          # mutating the view...
+print("original changed:", a)      # ...changes a!
+safe = a[:3].copy()   # .copy() breaks the link
+safe[0] = -1
+print("original intact:", a)
+print("ravel gives a flat view:", a.reshape(2, 3).ravel().shape)
+row = a[np.newaxis, :]             # add a leading axis
+print("newaxis shape:", row.shape)
+print("astype to int8 bytes:", a.astype(np.int8).nbytes)'''},
             {"t": "h", "text": "Vectorization beats Python loops"},
             {"t": "p", "text":
                 "The golden rule of numeric Python: *never loop over elements if "
@@ -170,6 +192,43 @@ b = np.zeros(4)                  # one bias per output
 y = X @ W + b
 print("X:", X.shape, " W:", W.shape, " ->  y:", y.shape)
 print("y:\\n", np.round(y, 3))'''},
+            {"t": "h", "text": "Batched matmul and einsum"},
+            {"t": "p", "text":
+                "`@` also broadcasts over leading **batch** axes: a `(B, m, k)` "
+                "array times a `(k, n)` array gives `(B, m, n)`, one matmul per "
+                "batch element with no loop. When the index bookkeeping gets "
+                "hairy, `np.einsum` spells out exactly which axes multiply and "
+                "which get summed. The attention scores `Q @ K^T` are a one-liner: "
+                "`\"qd,kd->qk\"` says \"multiply over the shared dim `d`, keep "
+                "queries and keys\"."},
+            {"t": "code", "run": True, "caption": "Batched Layer and Attention Scores",
+             "code": '''import numpy as np
+rng = np.random.default_rng(1)
+
+X = rng.normal(size=(8, 2, 3))   # 8 batches of (2, 3)
+W = rng.normal(size=(3, 4))      # shared (3, 4)
+Y = X @ W                        # broadcasts over the batch axis
+print("X:", X.shape, "@ W:", W.shape, "->", Y.shape)
+
+Q = rng.normal(size=(2, 3))      # 2 queries, dim 3
+K = rng.normal(size=(4, 3))      # 4 keys,    dim 3
+scores = np.einsum("qd,kd->qk", Q, K)   # Q @ K^T
+print("attention scores:", scores.shape)
+print(np.round(scores, 2))'''},
+            {"t": "h", "text": "Top-k predictions with argmax and argsort"},
+            {"t": "p", "text":
+                "After a forward pass you have a vector of scores per sample. "
+                "`argmax` gives the single predicted class; `argsort` (reversed) "
+                "gives the ranked indices for a **top-k** shortlist, exactly what "
+                "beam search and retrieval systems return."},
+            {"t": "code", "run": True, "caption": "Argmax and Top-k",
+             "code": '''import numpy as np
+
+logits = np.array([0.1, 3.2, 0.4, 2.1, 1.0])
+print("argmax (top-1):", int(np.argmax(logits)))
+top2 = np.argsort(logits)[::-1][:2]     # indices of the 2 largest
+print("top-2 indices:", top2)
+print("top-2 values :", logits[top2])'''},
             {"t": "h", "text": "A little linear algebra"},
             {"t": "p", "text":
                 "`np.linalg` gives you norms (for gradient clipping and "
@@ -267,6 +326,37 @@ logits = np.array([[2.0, 1.0, 0.1],
 probs = softmax(logits)
 print("probs:\\n", np.round(probs, 3))
 print("rows sum to 1:", np.round(probs.sum(axis=1), 6))'''},
+            {"t": "h", "text": "Why the naive softmax fails"},
+            {"t": "p", "text":
+                "It is worth *seeing* the overflow. `float64` maxes out around "
+                "`1e308`, and `exp(1000)` is astronomically larger, so it becomes "
+                "`inf` and `inf/inf` is `nan`. Subtracting the max shifts the "
+                "largest logit to `0`, so `exp` stays in `[0, 1]` while the ratios "
+                "are unchanged. The related **log-sum-exp** trick computes the log "
+                "of the denominator stably, and `np.clip` bounds values into a "
+                "safe range."},
+            {"t": "code", "run": True, "caption": "Naive vs Stable Softmax on Large Logits",
+             "code": '''import numpy as np
+
+logits = np.array([1000.0, 1001.0, 1002.0])   # large logits
+
+def naive(z):
+    e = np.exp(z)                 # exp(1002) overflows -> inf
+    return e / e.sum()
+
+def stable(z):
+    z = z - z.max()               # shift: mathematically identical
+    e = np.exp(z)
+    return e / e.sum()
+
+with np.errstate(over="ignore", invalid="ignore"):
+    print("naive :", naive(logits))     # nan from inf/inf
+print("stable:", np.round(stable(logits), 3))
+
+m = logits.max()                  # log-sum-exp, computed stably
+lse = m + np.log(np.exp(logits - m).sum())
+print("logsumexp:", round(float(lse), 3))
+print("clip to [0,1]:", np.clip([-3.0, 0.5, 9.0], 0.0, 1.0))'''},
             {"t": "h", "text": "Cross-entropy loss"},
             {"t": "p", "text":
                 "Cross-entropy measures how far predicted probabilities are from "
@@ -326,6 +416,26 @@ df = pd.DataFrame({
 print(df)
 print("\\ndtypes:\\n", df.dtypes)
 print("\\nshape:", df.shape)'''},
+            {"t": "h", "text": "Reading a CSV (from a string)"},
+            {"t": "p", "text":
+                "In practice you call `pd.read_csv(\"data.csv\")`. To keep this "
+                "example self-contained we hand `read_csv` an in-memory file via "
+                "`io.StringIO`, the parsing is identical. Notice how pandas infers "
+                "each column's dtype automatically from the raw text."},
+            {"t": "code", "run": True, "caption": "read_csv from an In-memory String",
+             "code": '''import io
+import pandas as pd
+
+CSV = """id,text_len,label,source
+1,12,0,web
+2,45,1,book
+3,7,0,web
+4,33,1,book
+5,20,0,web"""
+
+df = pd.read_csv(io.StringIO(CSV))
+print(df.head(3))
+print("\\ndtypes:\\n", df.dtypes)'''},
             {"t": "h", "text": "Inspecting: head and describe"},
             {"t": "p", "text":
                 "The first thing you do with any dataset is look at it. `head` "
@@ -447,6 +557,28 @@ print(summary.round(2))'''},
 df = pd.DataFrame({"color": ["red", "blue", "red", "green"]})
 onehot = pd.get_dummies(df, columns=["color"], dtype=int)
 print(onehot)'''},
+            {"t": "h", "text": "Merging two tables"},
+            {"t": "p", "text":
+                "Features often live in separate tables, an events log and a user "
+                "profile, keyed by a shared id. `merge` is pandas' SQL-style join: "
+                "`how=\"left\"` keeps every row on the left and attaches matching "
+                "columns from the right. `map` then turns a categorical string "
+                "into a numeric code in one pass."},
+            {"t": "code", "run": True, "caption": "merge Two Frames and map a Category",
+             "code": '''import pandas as pd
+
+events = pd.DataFrame({
+    "user_id": [1, 2, 1, 3],
+    "clicks":  [4, 1, 2, 7],
+})
+users = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "plan":    ["free", "pro", "free"],
+})
+joined = events.merge(users, on="user_id", how="left")
+joined["is_pro"] = joined["plan"].map({"free": 0, "pro": 1})
+print(joined)
+print("\\nclicks by plan:\\n", joined.groupby("plan")["clicks"].sum())'''},
             {"t": "h", "text": "Scaling a numeric column"},
             {"t": "p", "text":
                 "Features on wildly different scales make optimization hard. "
@@ -477,6 +609,15 @@ print(df.round(3))'''},
                 "PyTorch and friends invent very little new *language*, they lean "
                 "on dunder methods, decorators, context managers and operator "
                 "overloading you have already seen."},
+            {"t": "p", "text":
+                "A framework **tensor** is a NumPy `ndarray` with three additions: "
+                "it can live on a GPU (device placement, `x.to(\"cuda\")` in "
+                "PyTorch or `jax.device_put` in JAX), it can record operations for "
+                "**autograd** (so a backward pass computes gradients "
+                "automatically), and its ops are dispatched to fused kernels. "
+                "Shapes, dtypes, broadcasting and `@` behave exactly as they do "
+                "in NumPy, which is why everything you practised above transfers "
+                "unchanged."},
             {"t": "h", "text": "Plotting a loss curve (matplotlib, illustrative)"},
             {"t": "p", "text":
                 "matplotlib is the default way to visualize training. The snippet "
@@ -561,6 +702,38 @@ for step in range(0, 101):
     if step % 25 == 0:
         print(f"step {step:3d}  loss={loss:.4f}")
 print("learned w:", np.round(w, 2))'''},
+            {"t": "h", "text": "A whole tiny MLP forward pass in NumPy"},
+            {"t": "p", "text":
+                "Here is the payoff of the entire part: a complete 2-layer "
+                "classifier, `linear -> relu -> linear -> softmax`, using only the "
+                "pieces built earlier, matmul, broadcasting, ReLU and the stable "
+                "softmax. The illustrative PyTorch `MLP` above compiles to this "
+                "exact arithmetic; a framework merely adds autograd and a GPU."},
+            {"t": "code", "run": True, "caption": "Executed: 2-layer MLP Forward Pass",
+             "code": '''import numpy as np
+rng = np.random.default_rng(0)
+
+def relu(z):
+    return np.maximum(0.0, z)
+
+def softmax(z, axis=-1):
+    z = z - z.max(axis=axis, keepdims=True)
+    e = np.exp(z)
+    return e / e.sum(axis=axis, keepdims=True)
+
+X = rng.normal(size=(4, 3))          # batch=4, in=3
+W1 = rng.normal(size=(3, 5)) * 0.5   # layer 1: 3 -> 5
+b1 = np.zeros(5)
+W2 = rng.normal(size=(5, 2)) * 0.5   # layer 2: 5 -> 2
+b2 = np.zeros(2)
+
+h = relu(X @ W1 + b1)                # linear -> relu
+logits = h @ W2 + b2                 # linear
+probs = softmax(logits)             # -> class probabilities
+print("logits shape:", logits.shape)
+print("probs:\\n", np.round(probs, 3))
+print("row sums:", np.round(probs.sum(axis=1), 6))
+print("predicted class:", probs.argmax(axis=1))'''},
             {"t": "h", "text": "The whole book, in one sentence"},
             {"t": "bullets", "items": [
                 "**Containers & comprehensions** build datasets and batches.",

@@ -77,6 +77,41 @@ class BatchSampler:
 for batch in BatchSampler(7, batch_size=3):
     print("batch indices:", batch)
 '''},
+            {"t": "h", "text": "Iterable vs iterator: not the same thing"},
+            {"t": "p", "text":
+                "The distinction trips people up. An *iterable* can produce a "
+                "fresh iterator every time you call `iter()` on it, so a `list` "
+                "supports many independent passes. An *iterator* is a one-shot "
+                "cursor: calling `iter()` on it returns *itself*, so two names "
+                "share the same position and one pass exhausts it."},
+            {"t": "code", "run": True, "caption": "One is reusable, one is not",
+             "code": '''\
+data = [1, 2, 3]
+a = iter(data)
+b = iter(data)                       # independent cursor
+print("independent iterators:", a is b)
+print("first of a:", next(a), "first of b:", next(b))
+
+it = iter(data)
+print("iter(iterator) is itself:", iter(it) is it)
+'''},
+            {"t": "h", "text": "iter(callable, sentinel): read until a marker"},
+            {"t": "p", "text":
+                "The two-argument form of `iter()` calls a zero-argument "
+                "*callable* repeatedly and stops when the result equals the "
+                "*sentinel*. It is the clean way to drain a source, such as "
+                "fixed-size chunks from a file, until an end marker appears, "
+                "with no `while True` / `break` boilerplate."},
+            {"t": "code", "run": True, "caption": "Chunk a stream until sentinel",
+             "code": '''\
+import io
+
+buffer = io.StringIO("abcdefghij")
+# read 4 chars at a time; "" (EOF) is the sentinel that stops iteration
+read_chunk = lambda: buffer.read(4)
+for chunk in iter(read_chunk, ""):
+    print("chunk:", chunk)
+'''},
             {"t": "note", "text":
                 "Why it matters for AI: PyTorch `Dataset`/`DataLoader`, Hugging "
                 "Face streaming datasets and tf.data all speak the iterator "
@@ -165,6 +200,96 @@ g = gen()
 print("epoch 1:", list(g))
 print("epoch 2:", list(g))          # empty: already exhausted
 '''},
+            {"t": "h", "text": "Two-way generators with .send()"},
+            {"t": "p", "text":
+                "`yield` is also an expression: `x = yield value` sends `value` "
+                "out and, on the next `.send(v)`, resumes with `x == v`. This "
+                "turns a generator into a tiny stateful coroutine, ideal for a "
+                "running metric that updates as batches arrive without a class."},
+            {"t": "code", "run": True, "caption": "A running-average generator",
+             "code": '''\
+def running_average():
+    total, count = 0.0, 0
+    avg = None
+    while True:
+        x = yield avg                # emit current avg, wait for next value
+        total += x
+        count += 1
+        avg = total / count
+
+loss = running_average()
+next(loss)                           # prime: advance to the first yield
+for batch_loss in [1.0, 0.6, 0.2, 0.4]:
+    print(f"loss={batch_loss:.1f}  avg={loss.send(batch_loss):.3f}")
+'''},
+            {"t": "h", "text": ".throw() and .close(): the generator lifecycle"},
+            {"t": "p", "text":
+                "Beyond `.send()`, `.throw(exc)` raises an exception *inside* the "
+                "generator at the paused `yield` (letting it clean up or skip a "
+                "bad record), and `.close()` raises `GeneratorExit` so `finally` "
+                "blocks run, releasing files or sockets. This is the whole "
+                "generator lifecycle."},
+            {"t": "code", "run": True, "caption": "throw, close and finally",
+             "code": '''\
+def worker():
+    try:
+        while True:
+            item = yield
+            print("processed", item)
+    except ValueError as e:
+        print("recovered from:", e)
+    finally:
+        print("cleanup: releasing resources")
+
+w = worker()
+next(w)                              # prime
+w.send("a")
+try:
+    w.throw(ValueError("bad record"))   # caught inside the generator
+except StopIteration:
+    print("generator finished after throw")
+w.close()                           # no-op: already closed
+'''},
+            {"t": "h", "text": "Infinite streams tamed with islice"},
+            {"t": "p", "text":
+                "A generator can loop forever; `itertools.islice` slices a lazy "
+                "stream without materialising it, giving you exactly *k* items. "
+                "This is the standard way to take a bounded sample from an "
+                "endless source such as an augmentation pipeline."},
+            {"t": "code", "run": True, "caption": "islice a never-ending stream",
+             "code": '''\
+import itertools
+
+def augment_forever(seed):
+    i = 0
+    while True:                      # never stops on its own
+        yield f"{seed}_aug{i}"
+        i += 1
+
+first_five = list(itertools.islice(augment_forever("img"), 5))
+print(first_five)
+'''},
+            {"t": "h", "text": "An epoch loader that reshuffles each pass"},
+            {"t": "p", "text":
+                "Because a generator is single-use, wrap the logic in a function "
+                "you call once per epoch. Here each call reshuffles and yields "
+                "fresh mini-batches, exactly how a training loop requests a new "
+                "iterator every epoch."},
+            {"t": "code", "run": True, "caption": "One fresh generator per epoch",
+             "code": '''\
+import random
+
+def epoch_loader(data, batch_size, seed):
+    order = list(data)
+    random.Random(seed).shuffle(order)
+    for i in range(0, len(order), batch_size):
+        yield order[i:i + batch_size]
+
+data = list(range(6))
+for epoch in range(2):
+    batches = epoch_loader(data, batch_size=2, seed=epoch)
+    print(f"epoch {epoch}:", list(batches))
+'''},
             {"t": "note", "text":
                 "Why it matters for AI: streaming data loaders, tokenizing "
                 "corpora that do not fit in RAM, and yielding mini-batches are "
@@ -248,12 +373,167 @@ def flatten(shards):
 shards = [["a", "b"], ["c"], ["d", "e", "f"]]
 print("flattened:", list(flatten(shards)))
 '''},
+            {"t": "h", "text": "Recursive yield from for nested structure"},
+            {"t": "p", "text":
+                "Because `yield from` accepts any iterable, including another "
+                "call to the same generator, it flattens arbitrarily nested "
+                "structures in a few lines, handy for ragged config or nested "
+                "shard directories."},
+            {"t": "code", "run": True, "caption": "Deep-flatten a nested list",
+             "code": '''\
+def deep_flatten(obj):
+    for item in obj:
+        if isinstance(item, list):
+            yield from deep_flatten(item)   # recurse
+        else:
+            yield item
+
+nested = [1, [2, [3, 4], 5], [[6]], 7]
+print("deep flat:", list(deep_flatten(nested)))
+'''},
+            {"t": "h", "text": "Memory: a full pipeline stays flat"},
+            {"t": "p", "text":
+                "The payoff of composing generators is that peak memory does "
+                "not grow with the dataset. Below, the lazy pipeline processes a "
+                "large stream while holding only a running total; the eager list "
+                "version allocates every intermediate at once."},
+            {"t": "code", "run": True, "caption": "Lazy vs eager peak memory",
+             "code": '''\
+import sys
+
+n = 1_000_000
+# eager: materialise all squares, then all evens, then sum
+eager = [x for x in [v * v for v in range(n)] if x % 2 == 0]
+print("eager list bytes:", sys.getsizeof(eager))
+
+# lazy: one value in flight at a time, nothing materialised
+lazy = (x for x in (v * v for v in range(n)) if x % 2 == 0)
+print("lazy gen bytes:  ", sys.getsizeof(lazy))
+print("both sums equal:", sum(eager) == sum(lazy))
+'''},
+            {"t": "h", "text": "The same idea in the frameworks"},
+            {"t": "p", "text":
+                "These generator patterns are exactly what production data APIs "
+                "expose. A `torch` `IterableDataset` implements `__iter__` as a "
+                "generator, and `tf.data.Dataset.from_generator` wraps one "
+                "directly; both then add batching, shuffling and prefetching."},
+            {"t": "code", "run": False, "caption": "Illustrative framework wrappers",
+             "code": '''\
+# Illustrative only (frameworks not required to run this book).
+from torch.utils.data import IterableDataset
+
+class Stream(IterableDataset):
+    def __iter__(self):
+        yield from clean(read(open("corpus.txt")))
+
+# import tensorflow as tf
+# ds = tf.data.Dataset.from_generator(
+#     lambda: clean(read(open("corpus.txt"))),
+#     output_types=tf.string,
+# ).batch(32).prefetch(1)
+'''},
             {"t": "note", "text":
                 "Why it matters for AI: lazy pipelines are how you preprocess "
                 "corpora larger than memory. Use generator expressions to avoid "
                 "materialising intermediates, compose stages as generators, and "
                 "use `yield from` to flatten shards, keeping peak memory to a "
                 "single record plus a batch."},
+        ],
+    },
+    # ------------------------------------------------------------------
+    {
+        "title": "Building a Streaming Data Pipeline End to End",
+        "blocks": [
+            {"t": "p", "text":
+                "This chapter combines the pieces into one small but realistic "
+                "pipeline: a resource-safe reader, lazy cleaning and tokenizing "
+                "stages, batching, and a live metric fed with `.send()`. Every "
+                "stage is a generator, so the whole thing streams and stays "
+                "flat in memory."},
+            {"t": "h", "text": "contextlib for resource-safe iteration"},
+            {"t": "p", "text":
+                "A data source usually owns a resource (a file, socket or DB "
+                "cursor) that must close even if iteration stops early or "
+                "raises. `contextlib.contextmanager` lets you write that "
+                "open/yield/close guarantee as a generator, and the `finally` "
+                "block always runs."},
+            {"t": "code", "run": True, "caption": "A generator-based context manager",
+             "code": '''\
+from contextlib import contextmanager
+
+@contextmanager
+def open_shard(name, rows):
+    print("open", name)
+    try:
+        yield iter(rows)             # hand the caller a lazy cursor
+    finally:
+        print("close", name)         # runs even on early break / error
+
+with open_shard("shard-0", ["  A ", "b"]) as cur:
+    for row in cur:
+        print("row:", row.strip())
+'''},
+            {"t": "h", "text": "The full worked pipeline"},
+            {"t": "p", "text":
+                "Now we wire the stages together. `read` streams rows from the "
+                "managed shard, `clean` and `tokenize` transform lazily, "
+                "`batch` groups, and a `running_average` coroutine tracks mean "
+                "tokens-per-batch as batches flow past, no list of the corpus "
+                "ever exists."},
+            {"t": "code", "run": True, "caption": "Read to metric, fully lazy",
+             "code": '''\
+from contextlib import contextmanager
+
+@contextmanager
+def shard(rows):
+    try:
+        yield iter(rows)
+    finally:
+        print("shard closed")
+
+def clean(stream):
+    for line in stream:
+        s = line.strip().lower()
+        if s:                        # drop blank lines lazily
+            yield s
+
+def tokenize(stream):
+    for line in stream:
+        yield line.split()
+
+def batch(stream, size):
+    buf = []
+    for item in stream:
+        buf.append(item)
+        if len(buf) == size:
+            yield buf; buf = []
+    if buf:
+        yield buf
+
+def running_average():
+    total, count, avg = 0, 0, None
+    while True:
+        x = yield avg
+        total += x; count += 1
+        avg = total / count
+
+rows = ["  Hello WORLD ", "", "Deep  Learning here", " GPUs go BRRR "]
+mean_tokens = running_average()
+next(mean_tokens)                    # prime the metric
+
+with shard(rows) as src:
+    pipeline = batch(tokenize(clean(src)), size=2)
+    for i, b in enumerate(pipeline):
+        n_tokens = sum(len(sent) for sent in b)
+        avg = mean_tokens.send(n_tokens)
+        print(f"batch {i}: {b}  avg_tokens={avg:.1f}")
+'''},
+            {"t": "note", "text":
+                "Why it matters for AI: real ingestion code looks exactly like "
+                "this: resource-safe readers, composed lazy transforms, "
+                "batching, and streaming metrics. Master the generator toolkit "
+                "and you can preprocess corpora far larger than RAM while "
+                "guaranteeing every file handle is released."},
         ],
     },
 ]

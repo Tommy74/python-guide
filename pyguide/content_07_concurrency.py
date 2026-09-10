@@ -29,6 +29,39 @@ CHAPTERS = [
                 "Most tensor math already runs in C and releases the GIL, so "
                 "threads go further than beginners expect.",
             ]},
+            {"t": "p", "text":
+                "The demo below makes the GIL visible. We run the *same* "
+                "CPU-bound loop four times, first sequentially and then across "
+                "four threads. Because only one thread executes Python bytecode "
+                "at a time, the threaded version is **no faster** - it may even "
+                "be slower from lock contention. This is the single most "
+                "important thing to internalise before reaching for threads."},
+            {"t": "code", "run": True, "caption": "The GIL Blocks CPU-Bound Threads",
+             "code": '''\
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+def cpu_task(n):
+    total = 0
+    for i in range(n):       # pure-Python work: holds the GIL
+        total += i * i
+    return total
+
+N = 1_000_000
+
+start = time.perf_counter()
+for _ in range(4):
+    cpu_task(N)
+seq = time.perf_counter() - start
+
+start = time.perf_counter()
+with ThreadPoolExecutor(max_workers=4) as pool:
+    list(pool.map(cpu_task, [N] * 4))
+thr = time.perf_counter() - start
+
+print(f"sequential: {seq:.2f}s")
+print(f"4 threads:  {thr:.2f}s (no speedup - the GIL serialises it)")
+'''},
             {"t": "h", "text": "ThreadPoolExecutor.map for parallel I/O"},
             {"t": "p", "text":
                 "`concurrent.futures` gives a single clean API for both pools. "
@@ -76,6 +109,35 @@ with ThreadPoolExecutor(max_workers=5) as pool:
     futures = {pool.submit(fetch, u): u for u in urls}
     for fut in as_completed(futures):
         print("done:", fut.result())
+'''},
+            {"t": "h", "text": "Exceptions travel through the future"},
+            {"t": "p", "text":
+                "A worker that raises does not crash the pool - the exception is "
+                "stored on its future and **re-raised** when you call "
+                "`future.result()`. Wrap that call in `try/except` so one bad "
+                "sample cannot abort the whole batch; a robust data pipeline logs "
+                "the failure and keeps the good results."},
+            {"t": "code", "run": True, "caption": "Handling Failures Per Future",
+             "code": '''\
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+def load_sample(i):
+    if i == 3:
+        raise ValueError(f"corrupt record {i}")
+    return i * 10
+
+good, failed = [], []
+with ThreadPoolExecutor(max_workers=4) as pool:
+    futures = {pool.submit(load_sample, i): i for i in range(6)}
+    for fut in as_completed(futures):
+        i = futures[fut]
+        try:
+            good.append(fut.result())     # re-raises here if it failed
+        except ValueError as exc:
+            failed.append((i, str(exc)))
+
+print("loaded:", sorted(good))
+print("skipped:", failed)
 '''},
             {"t": "h", "text": "Switching to processes for CPU work"},
             {"t": "p", "text":
@@ -186,6 +248,76 @@ async def main():
 
 asyncio.run(main())
 '''},
+            {"t": "h", "text": "as_completed: stream results as they land"},
+            {"t": "p", "text":
+                "`gather` returns everything at once, in order. When responses "
+                "have uneven latency and you want to act on each the instant it "
+                "arrives - update a UI, write to disk, feed a downstream step - "
+                "use `asyncio.as_completed`. It yields awaitables in "
+                "**completion order**, so the fastest calls surface first."},
+            {"t": "code", "run": True, "caption": "Streaming Results with as_completed",
+             "code": '''\
+import asyncio, random
+
+async def call_model(i):
+    await asyncio.sleep(random.uniform(0.02, 0.12))
+    return f"result-{i}"
+
+async def main():
+    tasks = [call_model(i) for i in range(5)]
+    for coro in asyncio.as_completed(tasks):
+        print("arrived:", await coro)
+
+asyncio.run(main())
+'''},
+            {"t": "h", "text": "wait_for: bounding slow calls with a timeout"},
+            {"t": "p", "text":
+                "A hung request must not stall your pipeline. `asyncio.wait_for` "
+                "cancels the coroutine and raises `TimeoutError` once the "
+                "deadline passes, letting you retry or fall back. Here the call "
+                "would take 1s but we cap it at 0.1s."},
+            {"t": "code", "run": True, "caption": "Timeouts and Fallbacks",
+             "code": '''\
+import asyncio
+
+async def slow_call():
+    await asyncio.sleep(1.0)          # a call that hangs
+    return "real answer"
+
+async def main():
+    try:
+        answer = await asyncio.wait_for(slow_call(), timeout=0.1)
+    except asyncio.TimeoutError:
+        answer = "fallback (timed out)"
+    print(answer)
+
+asyncio.run(main())
+'''},
+            {"t": "h", "text": "Async generators: consuming a token stream"},
+            {"t": "p", "text":
+                "Streaming LLM responses arrive token by token. An **async "
+                "generator** (an `async def` that `yield`s) models this: it "
+                "`await`s the next chunk from the network and yields it, and the "
+                "caller consumes it with `async for`. The loop stays responsive "
+                "between tokens, so you can render output as it is produced."},
+            {"t": "code", "run": True, "caption": "Consuming an Async Token Stream",
+             "code": '''\
+import asyncio
+
+async def stream_tokens(text):
+    for token in text.split():
+        await asyncio.sleep(0.02)     # wait for the next chunk
+        yield token
+
+async def main():
+    pieces = []
+    async for token in stream_tokens("the model streams its reply"):
+        pieces.append(token)
+        print(token, end=" ", flush=True)
+    print("\\n[assembled]", " ".join(pieces))
+
+asyncio.run(main())
+'''},
             {"t": "h", "text": "What a real async LLM client looks like"},
             {"t": "p", "text":
                 "The pattern is identical with a real SDK: build an async "
@@ -220,6 +352,65 @@ answers = asyncio.run(main(["Summarise X", "Translate Y", "Classify Z"]))
                 "latency, not CPU. `asyncio.gather` for concurrency plus a "
                 "`Semaphore` for rate limiting is the backbone of fast, "
                 "well-behaved LLM clients."},
+        ],
+    },
+    # ------------------------------------------------------------------
+    {
+        "title": "Choosing Concurrency: I/O-bound vs CPU-bound",
+        "blocks": [
+            {"t": "p", "text":
+                "Three tools, one question: *is the work waiting or computing?* "
+                "Get that right and the choice almost makes itself. **I/O-bound** "
+                "work waits on the network or disk; **CPU-bound** work burns "
+                "processor cycles in pure Python."},
+            {"t": "h", "text": "A decision guide"},
+            {"t": "bullets", "items": [
+                "**Many I/O-bound calls (APIs, LLMs, DB)** - prefer *async*: one "
+                "thread juggles thousands of awaits with the least overhead.",
+                "**I/O-bound with blocking libraries** (no async support) - use "
+                "*threads* via `ThreadPoolExecutor`; the GIL is released while "
+                "they wait.",
+                "**CPU-bound pure-Python work** - use *processes* via "
+                "`ProcessPoolExecutor`; only separate interpreters sidestep the "
+                "GIL.",
+                "**Already-vectorised C work** (NumPy, PyTorch) - it releases "
+                "the GIL, so threads or even a plain loop are often enough.",
+            ]},
+            {"t": "h", "text": "Measuring the difference"},
+            {"t": "p", "text":
+                "The demo below runs the same batch of I/O-bound tasks "
+                "sequentially and then through a thread pool. For work dominated "
+                "by waiting, concurrency turns near-linear time into near-"
+                "constant time - the exact win you get from async or threads."},
+            {"t": "code", "run": True, "caption": "Sequential vs Concurrent I/O",
+             "code": '''\
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+def fetch(i):
+    time.sleep(0.05)          # I/O-bound: waiting, not computing
+    return i
+
+n = 10
+start = time.perf_counter()
+seq = [fetch(i) for i in range(n)]
+seq_t = time.perf_counter() - start
+
+start = time.perf_counter()
+with ThreadPoolExecutor(max_workers=n) as pool:
+    conc = list(pool.map(fetch, range(n)))
+conc_t = time.perf_counter() - start
+
+print(f"sequential: {seq_t:.2f}s")
+print(f"concurrent: {conc_t:.2f}s")
+print(f"speedup:    {seq_t / conc_t:.1f}x")
+'''},
+            {"t": "note", "text":
+                "Why it matters for AI: an inference pipeline mixes both worlds - "
+                "network-bound LLM calls (async), blocking client libraries "
+                "(threads) and CPU-bound tokenisation or image decoding "
+                "(processes). Naming each stage 'waiting' or 'computing' tells "
+                "you which tool keeps the GPU fed and the latency low."},
         ],
     },
 ]

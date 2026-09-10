@@ -40,6 +40,40 @@ CHAPTERS = [
                 "print('a =', a)\n"
                 "print('a == 0.3 ?', a == 0.3)\n"
                 "print('isclose  ?', math.isclose(a, 0.3, rel_tol=1e-9))"},
+            {"t": "h", "text": "Rounding, divmod and conversions"},
+            {"t": "p", "text":
+                "Python's `round` uses **banker's rounding** (round-half-to-"
+                "even), which reduces bias when you round many numbers, exactly "
+                "what you want for statistics. `divmod` returns the quotient and "
+                "remainder together, handy for turning a flat step count into "
+                "epochs and offsets. Conversions between `int` and `float` "
+                "truncate toward zero, so use `math.floor`/`ceil` when you need "
+                "a specific direction."},
+            {"t": "code", "run": True, "caption": "Banker's Rounding and Divmod",
+             "code":
+                "print('round(0.5) =', round(0.5))   # -> 0, ties go to even\n"
+                "print('round(1.5) =', round(1.5))   # -> 2, ties go to even\n"
+                "print('round(2.675, 2) =', round(2.675, 2))  # float artifact\n"
+                "epochs, offset = divmod(1003, 32)\n"
+                "print('divmod(1003, 32) =', (epochs, offset))\n"
+                "print('int(3.9) =', int(3.9), '| float(7) =', float(7))"},
+            {"t": "h", "text": "Infinity, NaN, and complex numbers"},
+            {"t": "p", "text":
+                "`math.inf` is a useful sentinel for a starting best-loss. "
+                "`math.nan` is special: it is **not equal to itself**, which is "
+                "how you detect a training run whose loss has diverged to NaN. "
+                "Python also has native `complex` numbers (written `2 + 3j`), "
+                "which appear in signal processing and Fourier transforms."},
+            {"t": "code", "run": True, "caption": "Inf, NaN and Complex",
+             "code":
+                "import math\n"
+                "best = math.inf                     # nothing beats infinity\n"
+                "print('0.9 < inf ?', 0.9 < best)\n"
+                "nan = math.nan\n"
+                "print('nan == nan ?', nan == nan)   # always False!\n"
+                "print('isnan       ?', math.isnan(nan))\n"
+                "z = 2 + 3j\n"
+                "print('complex:', z, '| magnitude:', abs(z))"},
             {"t": "h", "text": "Booleans are integers"},
             {"t": "p", "text":
                 "`True` and `False` are `1` and `0`. Summing a list of boolean "
@@ -89,6 +123,73 @@ CHAPTERS = [
                 "temperature = 0.7\n"
                 "top_p = 0.95\n"
                 "print(f'{temperature=}, {top_p=}')"},
+            {"t": "h", "text": "Rich format specs: alignment, separators, conversions"},
+            {"t": "p", "text":
+                "The format spec after `:` is a mini-language. Use `,` or `_` for "
+                "thousands separators (readable parameter counts), `<`/`^`/`>` "
+                "with a fill character for aligned tables, and the `!r`/`!s` "
+                "conversions to force `repr()` or `str()`. A field width can "
+                "itself be a variable via a nested `{}`."},
+            {"t": "code", "run": True, "caption": "Separators, Fill and Conversions",
+             "code":
+                "params = 6_738_415_616\n"
+                "print(f'params: {params:,}')        # 6,738,415,616\n"
+                "print(f'params: {params/1e9:.2f}B')\n"
+                "width = 10\n"
+                "for name, val in [('loss', 0.31), ('acc', 0.88)]:\n"
+                "    print(f'{name:<{width}}|{val:>8.3f}')  # nested width\n"
+                "label = 'cat'\n"
+                "print(f'raw={label!r} str={label!s}')  # repr vs str"},
+            {"t": "h", "text": "str.format and format_map for prompt templates"},
+            {"t": "p", "text":
+                "When a template lives in a config file or database rather than "
+                "in source code, you cannot use an f-string. `str.format` and "
+                "`str.format_map` fill named placeholders from arguments or a "
+                "dict, the classic way to store reusable prompt templates."},
+            {"t": "code", "run": True, "caption": "Filling a Stored Prompt Template",
+             "code":
+                "template = 'You are a {role}. Answer about {topic}.'\n"
+                "print(template.format(role='tutor', topic='calculus'))\n"
+                "fields = {'role': 'critic', 'topic': 'poetry'}\n"
+                "print(template.format_map(fields))  # fill from a dict"},
+            {"t": "h", "text": "Bytes and encoding: what tokenizers really see"},
+            {"t": "p", "text":
+                "Text on disk and on the wire is **bytes**, not characters. "
+                "`str.encode` turns a string into UTF-8 bytes and `bytes.decode` "
+                "reverses it. Modern byte-level tokenizers (BPE) operate on "
+                "these bytes directly, which is why a single emoji can cost "
+                "several tokens."},
+            {"t": "code", "run": True, "caption": "Encoding Text to UTF-8 Bytes",
+             "code":
+                "text = 'caf\\u00e9 \\U0001f600'   # 'cafe' + accent + emoji\n"
+                "raw = text.encode('utf-8')\n"
+                "print('chars:', len(text), '| bytes:', len(raw))\n"
+                "print('utf-8:', raw)\n"
+                "print('round-trip:', raw.decode('utf-8') == text)"},
+            {"t": "h", "text": "translate, removeprefix and removesuffix"},
+            {"t": "p", "text":
+                "`str.translate` deletes or remaps many characters in one pass "
+                "(fast punctuation stripping). `removeprefix`/`removesuffix` "
+                "(3.9+) safely trim known markers such as a `<s>` sentinel or a "
+                "file extension, unlike `strip`, which removes *any* of the "
+                "given characters."},
+            {"t": "code", "run": True, "caption": "Stripping Punctuation and Markers",
+             "code":
+                "import string\n"
+                "drop = str.maketrans('', '', string.punctuation)\n"
+                "print('Hello, world!!!'.translate(drop))  # no punctuation\n"
+                "tag = '<s>hello</s>'\n"
+                "print(tag.removeprefix('<s>').removesuffix('</s>'))"},
+            {"t": "h", "text": "textwrap: fitting prompts to a width"},
+            {"t": "code", "run": True, "caption": "Wrapping Long Prompt Text",
+             "code":
+                "import textwrap\n"
+                "note = ('Large language models predict the next token given '\n"
+                "        'all previous tokens in the context window.')\n"
+                "for line in textwrap.wrap(note, width=40):\n"
+                "    print(line)\n"
+                "print('---')\n"
+                "print(textwrap.shorten(note, width=45, placeholder=' ...'))"},
             {"t": "h", "text": "Common text-cleaning methods"},
             {"t": "code", "run": True, "caption": "Normalising text before tokenising",
              "code":
@@ -166,12 +267,139 @@ CHAPTERS = [
                 "    print(f'  {key:12} = {value}')\n"
                 "stoi = {ch: i for i, ch in enumerate('abc')}  # char -> id\n"
                 "print('token ids :', stoi)"},
+            {"t": "h", "text": "Dict tricks: setdefault, merging, sorting by value"},
+            {"t": "p", "text":
+                "`setdefault` inserts a key with a default only if it is absent, "
+                "the one-liner for grouping. The `|` operator merges two dicts "
+                "into a new one and `|=` updates in place (3.9+), the modern way "
+                "to layer a base config with overrides. To rank a frequency map, "
+                "sort its `.items()` by value with a `key` function."},
+            {"t": "code", "run": True, "caption": "Merge, Group and Rank a Dict",
+             "code":
+                "base = {'lr': 1e-3, 'epochs': 10}\n"
+                "override = {'lr': 3e-4, 'batch': 64}\n"
+                "print('merged:', base | override)   # override wins\n"
+                "groups = {}\n"
+                "for label, x in [('a', 1), ('b', 2), ('a', 3)]:\n"
+                "    groups.setdefault(label, []).append(x)\n"
+                "print('groups:', groups)\n"
+                "freq = {'the': 9, 'cat': 2, 'sat': 5}\n"
+                "ranked = sorted(freq.items(), key=lambda kv: kv[1], reverse=True)\n"
+                "print('ranked:', ranked)"},
+            {"t": "h", "text": "sort vs sorted, and a tuple immutability caveat"},
+            {"t": "p", "text":
+                "`list.sort()` reorders in place and returns `None`; `sorted()` "
+                "returns a new sorted list and works on any iterable. A subtle "
+                "gotcha: a tuple is immutable, but if it *contains* a mutable "
+                "object (a list), that inner object can still change, so such a "
+                "tuple is no longer hashable and cannot be a dict/set key."},
+            {"t": "code", "run": True, "caption": "In-place Sort vs Copy; Tuple Caveat",
+             "code":
+                "data = [5, 2, 9, 1]\n"
+                "print('sorted() copy :', sorted(data), '| original:', data)\n"
+                "data.sort(reverse=True)\n"
+                "print('after .sort() :', data)\n"
+                "t = (1, [2, 3])            # tuple holding a mutable list\n"
+                "t[1].append(4)            # the inner list still mutates\n"
+                "print('mutated tuple :', t)\n"
+                "try:\n"
+                "    hash(t)               # unhashable: contains a list\n"
+                "except TypeError as e:\n"
+                "    print('hash error  :', e)"},
+            {"t": "h", "text": "Set algebra and frozenset keys"},
+            {"t": "p", "text":
+                "Beyond union and intersection, `difference` (`-`) and "
+                "`symmetric_difference` (`^`) answer 'what is only in A' and "
+                "'what differs between A and B', useful for comparing predicted "
+                "vs true label sets. A `frozenset` is an immutable, hashable "
+                "set, so it can serve as a dict key, for example caching a value "
+                "per unordered feature combination."},
+            {"t": "code", "run": True, "caption": "Difference, Symmetric Difference, Frozenset",
+             "code":
+                "pred = {'cat', 'dog', 'bird'}\n"
+                "true = {'cat', 'dog', 'fish'}\n"
+                "print('only predicted :', pred - true)\n"
+                "print('disagreements  :', pred ^ true)\n"
+                "cache = {frozenset({'a', 'b'}): 0.9}\n"
+                "print('order-free key :', cache[frozenset({'b', 'a'})])"},
             {"t": "note", "text":
                 "Why it matters for AI: a token-to-id `dict`, a `set` "
                 "vocabulary, a `list` batch and a `tuple` shape appear in "
                 "essentially every data-loading and tokenisation pipeline. "
                 "Picking the right container makes that code both faster and "
                 "clearer."},
+        ],
+    },
+    # ------------------------------------------------------------------
+    {
+        "title": "The collections Module: Counter, defaultdict, deque",
+        "blocks": [
+            {"t": "p", "text":
+                "The standard-library `collections` module adds three "
+                "specialised containers that show up constantly in AI and NLP "
+                "code: `Counter` for frequency counting, `defaultdict` for "
+                "grouping without key checks, and `deque` for fixed-size rolling "
+                "buffers. They are pure Python, fast, and dependency-free."},
+            {"t": "h", "text": "Counter: token and word frequencies"},
+            {"t": "p", "text":
+                "`Counter` counts hashable items in one pass. `.most_common(k)` "
+                "returns the top-k by frequency, the first step of building a "
+                "vocabulary. Counters also support arithmetic, so you can add "
+                "the word counts of two documents or subtract a stop-word "
+                "profile."},
+            {"t": "code", "run": True, "caption": "Counting Tokens With Counter",
+             "code":
+                "from collections import Counter\n"
+                "text = 'the cat sat on the mat the cat ran'\n"
+                "counts = Counter(text.split())\n"
+                "print('counts     :', counts)\n"
+                "print('top 2      :', counts.most_common(2))\n"
+                "print('the -> ', counts['the'], '| missing ->', counts['dog'])\n"
+                "doc_b = Counter('the dog ran'.split())\n"
+                "print('combined   :', counts + doc_b)   # counter arithmetic"},
+            {"t": "h", "text": "defaultdict: grouping and accumulating"},
+            {"t": "p", "text":
+                "A `defaultdict` supplies a default value the first time a key is "
+                "touched, so you never write an `if key not in d` check. Use "
+                "`defaultdict(list)` to bucket samples by label and "
+                "`defaultdict(int)` to accumulate counts or running sums."},
+            {"t": "code", "run": True, "caption": "Grouping Samples by Label",
+             "code":
+                "from collections import defaultdict\n"
+                "samples = [('spam', 'buy now'), ('ham', 'hi mom'),\n"
+                "           ('spam', 'free cash'), ('ham', 'call me')]\n"
+                "by_label = defaultdict(list)\n"
+                "for label, msg in samples:\n"
+                "    by_label[label].append(msg)   # no key check needed\n"
+                "for label, msgs in by_label.items():\n"
+                "    print(f'{label}: {msgs}')\n"
+                "totals = defaultdict(int)\n"
+                "for label, _ in samples:\n"
+                "    totals[label] += 1\n"
+                "print('class counts:', dict(totals))"},
+            {"t": "h", "text": "deque: sliding windows and rolling buffers"},
+            {"t": "p", "text":
+                "A `deque` (double-ended queue) appends and pops from both ends "
+                "in O(1). With `maxlen` it becomes a fixed-size window: pushing a "
+                "new item automatically drops the oldest. This is exactly a "
+                "rolling loss buffer for smoothing, an n-gram window over tokens, "
+                "or a replay buffer in reinforcement learning."},
+            {"t": "code", "run": True, "caption": "A Rolling Loss Window With maxlen",
+             "code":
+                "from collections import deque\n"
+                "window = deque(maxlen=3)          # keep only last 3\n"
+                "stream = [0.9, 0.7, 0.6, 0.55, 0.5]\n"
+                "for loss in stream:\n"
+                "    window.append(loss)          # oldest drops off\n"
+                "    avg = sum(window) / len(window)\n"
+                "    print(f'loss={loss:.2f} window={list(window)} avg={avg:.3f}')"},
+            {"t": "note", "text":
+                "Why it matters for AI: `Counter` builds vocabularies and "
+                "computes class balance, `defaultdict` groups data and tallies "
+                "counts without boilerplate, and a `deque(maxlen=...)` is the "
+                "canonical sliding window for smoothed metrics, n-grams and "
+                "replay buffers. These three cover a huge share of everyday "
+                "data-wrangling in ML pipelines."},
         ],
     },
     # ------------------------------------------------------------------
@@ -213,6 +441,40 @@ CHAPTERS = [
                 "words = ['hi', 'bye', 'hi', 'ok']\n"
                 "lengths = {w: len(w) for w in set(words)}   # dict comp\n"
                 "print('lengths :', lengths)"},
+            {"t": "h", "text": "Dict comp from zip, and the walrus in a comprehension"},
+            {"t": "p", "text":
+                "Pairing two lists with `zip` inside a dict comprehension is the "
+                "idiomatic way to build a mapping from parallel columns. A "
+                "walrus (`:=`) lets you compute an expensive value once and both "
+                "filter on it and keep it, avoiding a double call."},
+            {"t": "code", "run": True, "caption": "Zip Into a Dict; Walrus Filter",
+             "code":
+                "names = ['loss', 'acc', 'f1']\n"
+                "vals  = [0.31, 0.88, 0.79]\n"
+                "metrics = {k: v for k, v in zip(names, vals)}\n"
+                "print('metrics:', metrics)\n"
+                "raw = ['  hi ', '', '  ok', '   ']\n"
+                "# strip once, keep only non-empty results\n"
+                "kept = [s for x in raw if (s := x.strip())]\n"
+                "print('kept   :', kept)"},
+            {"t": "h", "text": "Filtering vs conditional value (and not over-nesting)"},
+            {"t": "p", "text":
+                "Two very different `if`s appear in comprehensions. An `if` at "
+                "the *end* **filters** which items survive. An `if/else` in the "
+                "*value* position transforms every item but chooses between two "
+                "outputs. You can combine them, but if a comprehension needs "
+                "more than one level of nesting or a guard, a plain loop is "
+                "usually clearer, readability beats cleverness."},
+            {"t": "code", "run": True, "caption": "Filter vs Conditional Expression",
+             "code":
+                "nums = [-2, -1, 0, 1, 2, 3]\n"
+                "positives = [x for x in nums if x > 0]        # filter\n"
+                "signs = ['pos' if x > 0 else 'non-pos' for x in nums]  # map\n"
+                "# combine: transform only the survivors\n"
+                "inv = [round(1 / x, 2) for x in nums if x != 0]\n"
+                "print('filter :', positives)\n"
+                "print('map    :', signs)\n"
+                "print('combo  :', inv)"},
             {"t": "h", "text": "Generator expressions: lazy and memory-cheap"},
             {"t": "p", "text":
                 "Swap the square brackets for parentheses and you get a "
@@ -291,6 +553,49 @@ CHAPTERS = [
                 "        print(f'epoch {epoch}: improved by {improvement:.2f}')\n"
                 "    else:\n"
                 "        print(f'epoch {epoch}: no significant gain')"},
+            {"t": "h", "text": "for/else and while/else"},
+            {"t": "p", "text":
+                "A loop's `else` block runs only if the loop finished **without "
+                "`break`**. This reads naturally as a search: 'scan the items; if "
+                "none triggered the break, run the else'. It removes the usual "
+                "`found = False` flag."},
+            {"t": "code", "run": True, "caption": "Search With a Loop else",
+             "code":
+                "vocab = ['cat', 'dog', 'bird']\n"
+                "target = 'fish'\n"
+                "for word in vocab:\n"
+                "    if word == target:\n"
+                "        print('found:', word)\n"
+                "        break\n"
+                "else:\n"
+                "    print(target, 'is out of vocabulary')"},
+            {"t": "h", "text": "Chained comparisons and the ternary"},
+            {"t": "p", "text":
+                "Python lets you chain comparisons the way maths does: "
+                "`0 <= x < 1` is one expression that evaluates `x` once, ideal "
+                "for validating a probability or a learning rate. The ternary "
+                "`a if cond else b` picks a value inline."},
+            {"t": "code", "run": True, "caption": "Range Checks and Inline Choice",
+             "code":
+                "for p in [-0.1, 0.5, 1.0, 1.4]:\n"
+                "    ok = 0.0 <= p <= 1.0          # chained comparison\n"
+                "    status = 'valid' if ok else 'OUT OF RANGE'\n"
+                "    print(f'p={p:>5} -> {status}')"},
+            {"t": "h", "text": "zip(strict=True): catch silent length mismatches"},
+            {"t": "p", "text":
+                "By default `zip` stops at the shortest input, which can silently "
+                "drop data when your features and labels drift out of sync. "
+                "Passing `strict=True` (3.10+) raises a `ValueError` instead, a "
+                "cheap guard against a subtle data bug."},
+            {"t": "code", "run": True, "caption": "Strict Zip Guards Against Drift",
+             "code":
+                "features = [[1], [2], [3]]\n"
+                "labels = [0, 1]              # one label missing!\n"
+                "try:\n"
+                "    pairs = list(zip(features, labels, strict=True))\n"
+                "    print(pairs)\n"
+                "except ValueError as e:\n"
+                "    print('length mismatch:', e)"},
             {"t": "note", "text":
                 "Why it matters for AI: `enumerate`/`zip` drive training loops, "
                 "`*`-unpacking merges configs and splits sequences, and the "
@@ -342,6 +647,50 @@ CHAPTERS = [
                 "            return f'point ({x}, {y})'\n"
                 "for p in [(0, 0), (5, 0), (3, 3), (1, 2)]:\n"
                 "    print(p, '->', describe(p))"},
+            {"t": "h", "text": "Class patterns with __match_args__"},
+            {"t": "p", "text":
+                "`match` can destructure objects by type and attribute. A "
+                "dataclass supplies `__match_args__` automatically, so you can "
+                "write positional class patterns, a clean way to dispatch on "
+                "typed events or model configs."},
+            {"t": "code", "run": True, "caption": "Matching Dataclass Instances",
+             "code":
+                "from dataclasses import dataclass\n"
+                "@dataclass\n"
+                "class TextEvent:\n"
+                "    content: str\n"
+                "@dataclass\n"
+                "class ToolCall:\n"
+                "    name: str\n"
+                "    args: dict\n"
+                "def handle(ev):\n"
+                "    match ev:\n"
+                "        case TextEvent(content=c):\n"
+                "            return f'text: {c}'\n"
+                "        case ToolCall(name=n):\n"
+                "            return f'call: {n}'\n"
+                "for ev in [TextEvent('hi'), ToolCall('search', {'q': 'x'})]:\n"
+                "    print(handle(ev))"},
+            {"t": "h", "text": "OR-patterns, as-capture and mapping rest"},
+            {"t": "p", "text":
+                "The `|` operator merges alternatives in one case, `as` binds the "
+                "matched value to a name, and `**rest` captures the leftover keys "
+                "of a mapping, exactly what you need when an API payload carries "
+                "extra fields you want to keep."},
+            {"t": "code", "run": True, "caption": "OR-patterns and Capturing the Rest",
+             "code":
+                "def classify(event):\n"
+                "    match event:\n"
+                "        case {'type': ('start' | 'resume') as kind}:\n"
+                "            return f'run event: {kind}'\n"
+                "        case {'type': 'metric', 'name': n, **rest}:\n"
+                "            return f'metric {n}, extra={rest}'\n"
+                "        case _:\n"
+                "            return 'unhandled'\n"
+                "events = [{'type': 'resume'},\n"
+                "          {'type': 'metric', 'name': 'loss', 'step': 5}]\n"
+                "for e in events:\n"
+                "    print(classify(e))"},
             {"t": "note", "text":
                 "Why it matters for AI: LLM tool-calling and streaming responses "
                 "arrive as tagged, differently-shaped dicts/events. `match` "

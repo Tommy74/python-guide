@@ -25,6 +25,7 @@ CONTENT_MODULES = [
     "content_06_data",
     "content_07_concurrency",
     "content_08_numeric",
+    "content_09_transformer",
 ]
 
 
