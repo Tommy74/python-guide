@@ -13,10 +13,11 @@ from engine import (Book, run_example, ACCENT, INK, MUTED, PAGE_W, PAGE_H,
 
 TITLE = "Python for AI"
 SUBTITLE = "A Practical Feature Guide, Every Example Runnable"
-AUTHOR = "Built with Claude Code"
+AUTHOR = "Tommaso Borgato"
 
 # Content modules, in order. Each defines PART (str) and CHAPTERS (list).
 CONTENT_MODULES = [
+    "content_00_project_setup",
     "content_01_core",
     "content_02_functional",
     "content_03_iteration",
